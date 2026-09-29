@@ -1,0 +1,8 @@
+.venv/
+build/
+dist/
+work/
+__pycache__/
+*.log
+local_build.ps1
+config.json
