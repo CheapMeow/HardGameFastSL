@@ -72,8 +72,16 @@ def main() -> None:
         return log_path.read_text(encoding="utf-8") if log_path.exists() else ""
 
     tool = subprocess.Popen([str(EXE), "--config", str(config_path)])
+    second = None
     try:
         wait_until(lambda: "Listening hotkey=" in log_text(), 30, "tool listening")
+
+        second = subprocess.Popen([str(EXE), "--config", str(config_path)])
+        wait_until(lambda: second.poll() is not None, 30, "second instance exit")
+        assert second.returncode != 0, f"Second instance exited with code {second.returncode}"
+        assert "Another instance is already running" in log_text()
+        assert tool.poll() is None, f"First instance exited with code {tool.returncode}"
+        print("Second instance rejected")
 
         for round_index in range(1, 3):
             victim = subprocess.Popen(
@@ -95,6 +103,9 @@ def main() -> None:
     finally:
         print("--- tool log ---")
         print(log_text())
+        if second is not None and second.poll() is None:
+            second.kill()
+            second.wait()
         tool.kill()
         tool.wait()
         for p in matching_processes():
