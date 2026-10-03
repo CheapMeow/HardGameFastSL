@@ -1,4 +1,5 @@
 import logging
+import queue
 import shutil
 import subprocess
 import threading
@@ -19,6 +20,9 @@ class Config:
     save_target_dir: Path
     executable: Path
     kill_timeout_seconds: float
+    backup_hotkey: str
+    backup_source_file: Path
+    backup_target_dir: Path
 
 
 def load_config(raw: dict) -> Config:
@@ -30,6 +34,9 @@ def load_config(raw: dict) -> Config:
         save_target_dir=Path(raw.pop("save_target_dir")),
         executable=Path(raw.pop("executable")),
         kill_timeout_seconds=float(raw.pop("kill_timeout_seconds")),
+        backup_hotkey=raw.pop("backup_hotkey"),
+        backup_source_file=Path(raw.pop("backup_source_file")),
+        backup_target_dir=Path(raw.pop("backup_target_dir")),
     )
     if raw:
         raise ValueError(f"Unknown config keys: {sorted(raw)}")
@@ -41,7 +48,12 @@ def load_config(raw: dict) -> Config:
         raise NotADirectoryError(f"save_target_dir not found: {config.save_target_dir}")
     if not config.executable.is_file():
         raise FileNotFoundError(f"executable not found: {config.executable}")
+    if not config.backup_hotkey:
+        raise ValueError("backup_hotkey must not be empty")
+    if not config.backup_target_dir.is_dir():
+        raise NotADirectoryError(f"backup_target_dir not found: {config.backup_target_dir}")
     keyboard.parse_hotkey(config.hotkey)
+    keyboard.parse_hotkey(config.backup_hotkey)
     return config
 
 
@@ -87,15 +99,29 @@ def replay(config: Config) -> None:
     logging.info("Launched %s pid=%d", config.executable, process.pid)
 
 
+def read_only_backup(config: Config) -> None:
+    # 目标目录必须已经存在，文件复制用覆盖方式写入
+    if not config.backup_source_file.is_file():
+        raise FileNotFoundError(f"backup_source_file not found: {config.backup_source_file}")
+    logging.info("Backup hotkey triggered")
+    destination = config.backup_target_dir / config.backup_source_file.name
+    shutil.copyfile(config.backup_source_file, destination)
+    logging.info("Backup copied %s -> %s", config.backup_source_file, destination)
+
+
 def run(raw: dict) -> None:
     config = load_config(raw)
 
     # 操作在主线程执行：hook 回调保持轻量，且异常可以直接终止进程
-    trigger = threading.Event()
-    keyboard.add_hotkey(config.hotkey, trigger.set)
+    # 两个热键各自向队列投递动作名，主线程阻塞取队列并执行对应操作
+    events: queue.Queue[str] = queue.Queue()
+    keyboard.add_hotkey(config.hotkey, lambda: events.put("replay"))
+    keyboard.add_hotkey(config.backup_hotkey, lambda: events.put("backup"))
     logging.info("Listening hotkey=%s", config.hotkey)
+    logging.info("Listening backup hotkey=%s", config.backup_hotkey)
     while True:
-        trigger.wait()
-        replay(config)
-        # 丢弃执行期间的重复触发
-        trigger.clear()
+        action = events.get()
+        if action == "replay":
+            replay(config)
+        else:
+            read_only_backup(config)

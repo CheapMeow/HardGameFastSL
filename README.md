@@ -22,6 +22,14 @@
 
 `kill_timeout_seconds` 是结束进程后最多等待的秒数。超时后程序直接报错并停止，存档保持原样。
 
+## 备份快捷键
+
+程序启动时会监听一个额外的全局快捷键，它的功能与游戏无关：把一个文件按覆盖方式复制到另一个目录，仅此而已。
+
+按下备份快捷键之后，程序只做一件事：把 `backup_source_file` 复制到 `backup_target_dir`，目标文件名与源文件名相同，目录里的同名文件会被覆盖。源文件在按键时不存在会报错，程序停止；目标目录在启动时必须存在，否则程序直接退出。
+
+典型用法是在只狼游玩过程中按备份快捷键，把当前的活档复制到另一份位置做备份，随时可以再用 `hotkey` 快捷键读回来。
+
 ## 配置
 
 把 `config.json` 放在 `HardGameFastSL.exe` 同一目录，或者启动时用 `--config` 指定路径。日志写在配置文件同一目录，文件名是 `HardGameFastSL.log`。
@@ -34,7 +42,10 @@
         "save_source_file": "<backup-save-file>",
         "save_target_dir": "<live-save-directory>",
         "executable": "<sekiro-install-directory>\\sekiro.exe",
-        "kill_timeout_seconds": 10
+        "kill_timeout_seconds": 10,
+        "backup_hotkey": "ctrl+b",
+        "backup_source_file": "<live-save-file>",
+        "backup_target_dir": "<backup-save-directory>"
     }
 }
 ```
@@ -45,5 +56,8 @@
 - `save_target_dir`：游戏正在使用的存档目录的完整路径。
 - `executable`：`sekiro.exe` 的完整路径。
 - `kill_timeout_seconds`：结束进程后最多等待的秒数。
+- `backup_hotkey`：备份快捷键，全局热键，写法与 Python `keyboard` 库的热键字符串一致。
+- `backup_source_file`：备份快捷键按下时要复制的源文件的完整路径。
+- `backup_target_dir`：备份快捷键按下时源文件复制到的目标目录的完整路径。
 
 路径换成自己机器上的实际位置。顶层 key 必须正好是 `Sekiro`，且只能有这一个 key。字段必须与上面列出的一致。路径指向的文件和目录必须已经存在。任一条件不满足时，程序会直接退出。

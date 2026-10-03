@@ -13,6 +13,7 @@ EXE = ROOT / "dist" / "HardGameFastSL.exe"
 WORK = ROOT / "work" / "e2e"
 # 使用不会被其他程序占用的组合键，避免注入的按键在前台窗口里触发别的功能
 HOTKEY = "ctrl+alt+shift+f10"
+BACKUP_HOTKEY = "ctrl+alt+shift+f9"
 # 大小写与目标进程名不同，用来验证不区分大小写的匹配
 KEYWORD = "E2EVICTIM"
 
@@ -39,13 +40,16 @@ def main() -> None:
         shutil.rmtree(WORK)
     source_dir = WORK / "source"
     target_dir = WORK / "target"
+    backup_dir = WORK / "backup"
     source_dir.mkdir(parents=True)
     target_dir.mkdir()
+    backup_dir.mkdir()
 
     source_save = source_dir / "S0000.sl2"
     source_save.write_bytes(os.urandom(1 << 20))
     target_save = target_dir / "S0000.sl2"
     target_save.write_bytes(b"stale save")
+    backup_save = backup_dir / "S0000.sl2"
 
     target_exe = WORK / "E2EVictim.exe"
     shutil.copyfile(Path(os.environ["SystemRoot"]) / "System32" / "PING.EXE", target_exe)
@@ -61,6 +65,9 @@ def main() -> None:
                     "save_target_dir": str(target_dir),
                     "executable": str(target_exe),
                     "kill_timeout_seconds": 10,
+                    "backup_hotkey": BACKUP_HOTKEY,
+                    "backup_source_file": str(source_save),
+                    "backup_target_dir": str(backup_dir),
                 }
             }
         ),
@@ -75,6 +82,7 @@ def main() -> None:
     second = None
     try:
         wait_until(lambda: "Listening hotkey=" in log_text(), 30, "tool listening")
+        wait_until(lambda: "Listening backup hotkey=" in log_text(), 30, "backup hotkey listening")
 
         second = subprocess.Popen([str(EXE), "--config", str(config_path)])
         wait_until(lambda: second.poll() is not None, 30, "second instance exit")
@@ -100,6 +108,21 @@ def main() -> None:
             assert target_save.read_bytes() == source_save.read_bytes(), "Target save was not overwritten"
             assert tool.poll() is None, f"Tool exited with code {tool.returncode}"
             print(f"Round {round_index} passed")
+
+        for round_index in range(1, 3):
+            source_save.write_bytes(os.urandom(1 << 20))
+            assert not backup_save.exists() or backup_save.read_bytes() != source_save.read_bytes()
+
+            keyboard.send(BACKUP_HOTKEY)
+
+            wait_until(lambda: log_text().count("Backup copied ") == round_index, 15, f"backup logged (round {round_index})")
+            assert backup_save.is_file(), f"Backup file missing (round {round_index})"
+            assert backup_save.read_bytes() == source_save.read_bytes(), "Backup file was not overwritten"
+            # 备份快捷键不得触发 SL 流程
+            assert log_text().count("Launched ") == 2, "Backup hotkey triggered the replay flow"
+            assert log_text().count("Hotkey triggered") == 2, "Backup hotkey triggered the replay flow"
+            assert tool.poll() is None, f"Tool exited with code {tool.returncode}"
+            print(f"Backup round {round_index} passed")
     finally:
         print("--- tool log ---")
         print(log_text())
